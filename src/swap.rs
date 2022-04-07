@@ -64,8 +64,7 @@ pub trait NftMint {
         require!(!self.nft_token_id().is_empty(), "Token not issued!");
         let roles = [
             EsdtLocalRole::NftCreate,
-            EsdtLocalRole::NftAddQuantity,
-            EsdtLocalRole::NftBurn
+            EsdtLocalRole::NftBurn,
         ];
         self.send()
             .esdt_system_sc_proxy()
@@ -103,7 +102,9 @@ pub trait NftMint {
     #[endpoint(mintRandomNft)]
     fn mint_random_nft(&self){
         require!(self.is_paused().get()==false,"Contract is paused");
-        
+        require!(self.indexes().len()>0usize,"Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(),"CID is not set");
+        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
         require!(payment_amount > 0u64, "Payment must be more than 0");
 
@@ -152,6 +153,9 @@ pub trait NftMint {
     #[endpoint(mintSpecificNft)]
     fn mint_specific_nft(&self,number:usize){
         require!(self.is_paused().get()==false,"Contract is paused");
+        require!(self.indexes().len()>0usize,"Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(),"CID is not set");
+        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
         
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
         require!(payment_amount > 0u64, "Payment must be more than 0");
@@ -169,9 +173,9 @@ pub trait NftMint {
         
         let indexes=self.indexes();
         let mut index=0usize;
-        for i in 0..tokens_available{
-            if number==indexes.get(i){
-                index=indexes.get(i);
+        for i in indexes.iter(){
+            if number==i{
+                index=i;
                 break;
             }}
         require!(index>0,"NFT already minted");
@@ -228,6 +232,13 @@ pub trait NftMint {
     fn set_max_per_tx(&self, max_per_tx: BigUint) {
         self.max_per_tx().set(&max_per_tx);
     }
+
+    #[only_owner]
+    #[endpoint(indexLength)]
+    fn get_indexes_length(&self) ->usize{
+        self.indexes().len()
+    }
+
 
     //HELPERS
     fn create_attributes(&self,number:usize) -> ManagedBuffer{

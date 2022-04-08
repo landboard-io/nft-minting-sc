@@ -120,7 +120,7 @@ pub trait NftMint {
         require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
 
         let mut rand_source = RandomnessSource::<Self::Api>::new();
-        let number=rand_source.next_usize_in_range(0,tokens_available);
+        let number=rand_source.next_usize_in_range(1,tokens_available+1);
         
         let index=self.indexes().get(number);
         let token_id = self.nft_token_id().get();
@@ -231,12 +231,6 @@ pub trait NftMint {
     #[endpoint(setMaxPerTx)]
     fn set_max_per_tx(&self, max_per_tx: BigUint) {
         self.max_per_tx().set(&max_per_tx);
-    }
-
-    #[only_owner]
-    #[endpoint(indexLength)]
-    fn get_indexes_length(&self) ->usize{
-        self.indexes().len()
     }
 
 

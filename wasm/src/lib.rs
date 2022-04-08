@@ -8,6 +8,7 @@ elrond_wasm_node::wasm_endpoints! {
     sftmint
     (
         callBack
+        firstItem
         getIndexes
         getMaxPerTx
         getNftTokenCid

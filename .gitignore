@@ -16,3 +16,5 @@ deployOutput
 commands.txt
 keystore.json
 keystorePassword.txt
+erdpy.data-storage.json
+deploy-devnet.interaction.json

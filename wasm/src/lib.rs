@@ -8,7 +8,6 @@ elrond_wasm_node::wasm_endpoints! {
     sftmint
     (
         callBack
-        firstItem
         getIndexes
         getMaxPerTx
         getNftTokenCid
@@ -16,7 +15,6 @@ elrond_wasm_node::wasm_endpoints! {
         getNftTokenName
         getNumberOfNfts
         getSftPrice
-        indexLength
         issueToken
         mintRandomNft
         mintSpecificNft

@@ -119,30 +119,37 @@ pub trait NftMint {
         let tokens_available=self.indexes().len();
         require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
 
+        let mut payments = ManagedVec::new();
         let mut rand_source = RandomnessSource::<Self::Api>::new();
-        let number=rand_source.next_usize_in_range(1,tokens_available+1);
+        let mut i=BigUint::from(1usize);
+        let step=BigUint::from(1usize);
+        while i<=nr_of_tokens{
+            let number=rand_source.next_usize_in_range(1,tokens_available+1);
         
-        let index=self.indexes().get(number);
-        let token_id = self.nft_token_id().get();
-        let token_name=self.create_name(index);
-        let attributes=self.create_attributes(index);
-        let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
-        let attributes_hash = hash_buffer.as_managed_buffer();
-        let uris=self.create_uris(index);
+            let index=self.indexes().get(number);
+            let token_id = self.nft_token_id().get();
+            let token_name=self.create_name(index);
+            let attributes=self.create_attributes(index);
+            let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+            let attributes_hash = hash_buffer.as_managed_buffer();
+            let uris=self.create_uris(index);
 
-        let nonce=self.send().esdt_nft_create(
-                    &token_id,
-                    &BigUint::from(1u64),
-                    &token_name,
-                    &BigUint::from(ROYALTIES),
-                    &attributes_hash,
-                    &attributes,
-                    &uris);
-        
-        self.indexes().swap_remove(number);
+            let nonce=self.send().esdt_nft_create(
+                        &token_id,
+                        &BigUint::from(1u64),
+                        &token_name,
+                        &BigUint::from(ROYALTIES),
+                        &attributes_hash,
+                        &attributes,
+                        &uris);
+            
+            self.indexes().swap_remove(number);
+            payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
+            i+=&step;
+        }
 
         let caller = self.blockchain().get_caller();
-        self.send().direct(&caller, &token_id, nonce, &BigUint::from(1u64), &[]);
+        self.send().direct_multi(&caller, &payments, &[]);
 
         let owner = self.blockchain().get_owner_address();
         let (pay_amount,pay_token)=self.call_value().payment_token_pair();
@@ -165,7 +172,7 @@ pub trait NftMint {
         require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
 
         let nr_of_tokens=&payment_amount/&price;
-        require!(&nr_of_tokens>=&1u64,"Minimum amount to buy is 1");
+        require!(&nr_of_tokens==&1u64,"Can only mint one specific NFT at a time");
         require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
         
         let tokens_available=self.indexes().len();
@@ -211,6 +218,9 @@ pub trait NftMint {
     #[only_owner]
     #[endpoint(pause)]
     fn pause(&self){
+        require!(self.indexes().len()>0usize,"Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(),"CID is not set");
+        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
         let pause_value=&self.is_paused().get();
         if self.is_paused().is_empty(){
             self.is_paused().set(true);

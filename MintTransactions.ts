@@ -21,7 +21,7 @@ const sendMintRandomNftTransaction = async (numberOfTokensToMint: number) => {
   }
 };
 
-const sendMintSpecificNftTransaction = async (nonceOfMintedNft: number) => {
+const sendMintSpecificNftTransaction = async (nonceOfMintedNft: string) => {
   //nonceOfMintedNft should be in hexa
   //nonceOfMintedNft should have an even number of characters
   //(pad with a 0 at the beginning if it does not)

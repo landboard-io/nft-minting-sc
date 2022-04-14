@@ -151,7 +151,7 @@ pub trait NftMint {
                         &attributes,
                         &uris);
             
-            self.indexes().swap_remove(number.try_into().unwrap());
+            self.indexes().remove(number.try_into().unwrap());
             payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
             i+=&step;
         }

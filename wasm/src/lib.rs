@@ -14,6 +14,7 @@ elrond_wasm_node::wasm_endpoints! {
         getNftTokenId
         getNftTokenName
         getNumberOfNfts
+        getRefPercent
         getSftPrice
         issueToken
         mintRandomNft
@@ -24,5 +25,6 @@ elrond_wasm_node::wasm_endpoints! {
         setLocalRoles
         setMaxPerTx
         setPrice
+        setRefPercent
     )
 }

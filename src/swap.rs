@@ -79,14 +79,16 @@ pub trait NftMint {
 
     #[only_owner]
     #[endpoint(populateIndexes)]
-    fn populate_indexes(&self, total_number_of_nfts:usize){
+    fn populate_indexes(&self, total_number_of_nfts_to_add:u32)->u32{
         let mut indexes=self.indexes();
+        let total_number_of_nfts=self.total_number_of_nfts().get();
         require!(indexes.len()==0,"Indexes already populated");
-        require!(&total_number_of_nfts>=&0,"Can't declare total number of NFTs as 0");
-        for i in 0..total_number_of_nfts{
-            indexes.push(&(i+1));
+        require!(&total_number_of_nfts_to_add>=&0,"Can't declare total number of NFTs as 0");
+        for i in 0..total_number_of_nfts_to_add{
+            indexes.push(&(total_number_of_nfts+i+1));
         }
-        self.total_number_of_nfts().set(total_number_of_nfts)
+        self.total_number_of_nfts().set(total_number_of_nfts+total_number_of_nfts_to_add);
+        self.total_number_of_nfts().get()
     }
 
     #[only_owner]
@@ -94,13 +96,19 @@ pub trait NftMint {
     fn set_cid(&self, cid:ManagedBuffer){
         let indexes=self.indexes();
         let total_number_of_nfts=self.total_number_of_nfts().get();
-        require!(&total_number_of_nfts==&indexes.len(),"Can't change cid after minting started");
+        require!(total_number_of_nfts as usize==indexes.len(),"Can't change cid after minting started");
         self.nft_token_cid().set(cid);
+    }
+
+    #[only_owner]
+    #[endpoint(setRefPercent)]
+    fn set_ref_percent(&self, reff:BigUint){
+        self.ref_percent().set(reff);
     }
 
     #[payable("*")]
     #[endpoint(mintRandomNft)]
-    fn mint_random_nft(&self){
+    fn mint_random_nft(&self,#[var_args] ref_address: OptionalValue<ManagedAddress>){
         require!(self.is_paused().get()==false,"Contract is paused");
         require!(self.indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
@@ -121,12 +129,12 @@ pub trait NftMint {
 
         let mut payments = ManagedVec::new();
         let mut rand_source = RandomnessSource::<Self::Api>::new();
-        let mut i=BigUint::from(1usize);
-        let step=BigUint::from(1usize);
+        let mut i=BigUint::from(1u32);
+        let step=BigUint::from(1u32);
         while i<=nr_of_tokens{
-            let number=rand_source.next_usize_in_range(1,tokens_available+1);
+            let number=rand_source.next_usize_in_range(1,tokens_available+1) as u32;
         
-            let index=self.indexes().get(number);
+            let index=self.indexes().get(number.try_into().unwrap());
             let token_id = self.nft_token_id().get();
             let token_name=self.create_name(index);
             let attributes=self.create_attributes(index);
@@ -143,7 +151,7 @@ pub trait NftMint {
                         &attributes,
                         &uris);
             
-            self.indexes().swap_remove(number);
+            self.indexes().swap_remove(number.try_into().unwrap());
             payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
             i+=&step;
         }
@@ -153,12 +161,26 @@ pub trait NftMint {
 
         let owner = self.blockchain().get_owner_address();
         let (pay_amount,pay_token)=self.call_value().payment_token_pair();
-        self.send().direct(&owner, &pay_token, 0, &pay_amount, &[]);
+
+        let mut ref_amount=BigUint::from(0u32);
+        let ref_percent=self.ref_percent().get();
+        if ref_percent>BigUint::from(0u32){
+            if let OptionalValue::Some(ref_addr)=ref_address{
+                require!(caller!=ref_addr,"Caller can't refer themselves");
+                if self.is_first_mint(&ref_addr).is_empty()||self.is_first_mint(&ref_addr).get(){
+                    ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
+                    self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
+                    self.is_first_mint(&ref_addr).set(false);
+                }
+            }
+        }
+
+        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount), &[]);
     }
 
     #[payable("*")]
     #[endpoint(mintSpecificNft)]
-    fn mint_specific_nft(&self,number:usize){
+    fn mint_specific_nft(&self,number:u32,#[var_args] ref_address: OptionalValue<ManagedAddress>){
         require!(self.is_paused().get()==false,"Contract is paused");
         require!(self.indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
@@ -179,7 +201,7 @@ pub trait NftMint {
         require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
         
         let indexes=self.indexes();
-        let mut index=0usize;
+        let mut index=0u32;
         for i in indexes.iter(){
             if number==i{
                 index=i;
@@ -203,15 +225,27 @@ pub trait NftMint {
                     &attributes,
                     &uris);
         
-        self.indexes().swap_remove(index);
+        self.indexes().swap_remove(index.try_into().unwrap());
 
         let caller = self.blockchain().get_caller();
-        self.send().direct(&caller, &token_id, nonce, &BigUint::from(1usize), &[]);
+        self.send().direct(&caller, &token_id, nonce, &BigUint::from(1u32), &[]);
 
         let owner = self.blockchain().get_owner_address();
         let (pay_amount,pay_token)=self.call_value().payment_token_pair();
-        self.send().direct(&owner, &pay_token, 0, &pay_amount, &[]);
-        //RAMAS AICI!
+
+        let mut ref_amount=BigUint::from(0u32);
+        let ref_percent=self.ref_percent().get();
+        if ref_percent>BigUint::from(0u32){
+            if let OptionalValue::Some(ref_addr)=ref_address{
+                require!(caller!=ref_addr,"Caller can't refer themselves");
+                if self.is_first_mint(&ref_addr).is_empty()||self.is_first_mint(&ref_addr).get(){
+                    ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
+                    self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
+                    self.is_first_mint(&ref_addr).set(false);
+                }
+            }
+        }
+        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount), &[]);
     }
 
     //STATE
@@ -233,7 +267,7 @@ pub trait NftMint {
     #[only_owner]
     #[endpoint(setPrice)]
     fn set_price(&self, token_id:TokenIdentifier, price: BigUint) {
-        require!(price>BigUint::from(0usize),"Can't set price to 0");
+        require!(price>BigUint::from(0u32),"Can't set price to 0");
         self.selling_price(token_id).set(&price);
     }
 
@@ -245,7 +279,7 @@ pub trait NftMint {
 
 
     //HELPERS
-    fn create_attributes(&self,number:usize) -> ManagedBuffer{
+    fn create_attributes(&self,number:u32) -> ManagedBuffer{
         let cid=self.nft_token_cid().get();
         let mut attributes=ManagedBuffer::new_from_bytes("metadata:".as_bytes());
         attributes.append(&cid);
@@ -255,7 +289,7 @@ pub trait NftMint {
         attributes
     }
 
-    fn create_uris(&self,number:usize)->ManagedVec<ManagedBuffer>{
+    fn create_uris(&self,number:u32)->ManagedVec<ManagedBuffer>{
         let cid=self.nft_token_cid().get();
         let mut uris=ManagedVec::new();
         let mut media_uri=ManagedBuffer::new_from_bytes("https://ipfs.io/ipfs/".as_bytes());
@@ -273,7 +307,7 @@ pub trait NftMint {
         uris
     }
 
-    fn create_name(&self,number:usize)->ManagedBuffer{
+    fn create_name(&self,number:u32)->ManagedBuffer{
         let mut full_token_name = ManagedBuffer::new();
         let token_name_from_storage = self.nft_token_name().get();
         let token_index = self.decimal_to_ascii(number);
@@ -284,11 +318,11 @@ pub trait NftMint {
         full_token_name
     }
 
-    fn decimal_to_ascii(&self, mut number: usize) -> ManagedBuffer {
-        const MAX_NUMBER_CHARACTERS: usize = 10;
+    fn decimal_to_ascii(&self, mut number: u32) -> ManagedBuffer {
+        const MAX_NUMBER_CHARACTERS: u32 = 10;
         const ZERO_ASCII: u8 = b'0';
 
-        let mut as_ascii = [0u8; MAX_NUMBER_CHARACTERS];
+        let mut as_ascii = [0u8; MAX_NUMBER_CHARACTERS as usize];
         let mut nr_chars = 0;
 
         loop {
@@ -311,6 +345,15 @@ pub trait NftMint {
         ManagedBuffer::new_from_bytes(slice)
     }
 
+    fn caller_from_option_or_owner(
+        &self,
+        caller: OptionalValue<ManagedAddress>,
+    ) -> ManagedAddress {
+        caller
+            .into_option()
+            .unwrap_or_else(|| self.blockchain().get_owner_address())
+    }
+
     //STORAGE
 
     //NFTS
@@ -328,11 +371,11 @@ pub trait NftMint {
 
     #[view(getNumberOfNfts)]
     #[storage_mapper("totalNumberOfNfts")]
-    fn total_number_of_nfts(&self) -> SingleValueMapper<usize>;
+    fn total_number_of_nfts(&self) -> SingleValueMapper<u32>;
 
     #[view(getIndexes)]
     #[storage_mapper("indexes")]
-    fn indexes(&self) -> VecMapper<usize>;
+    fn indexes(&self) -> VecMapper<u32>;
 
     //SELLING
     #[storage_mapper("is_paused")]
@@ -345,4 +388,11 @@ pub trait NftMint {
     #[view(getMaxPerTx)]
     #[storage_mapper("getMaxPerTx")]
     fn max_per_tx(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getRefPercent)]
+    #[storage_mapper("getRefPercent")]
+    fn ref_percent(&self) -> SingleValueMapper<BigUint>;
+
+    #[storage_mapper("isFirstMint")]
+    fn is_first_mint(&self, address:&ManagedAddress) -> SingleValueMapper<bool>;
 }

@@ -82,7 +82,6 @@ pub trait NftMint {
     fn populate_indexes(&self, total_number_of_nfts_to_add:u32)->u32{
         let mut indexes=self.indexes();
         let total_number_of_nfts=self.total_number_of_nfts().get();
-        require!(indexes.len()==0,"Indexes already populated");
         require!(&total_number_of_nfts_to_add>=&0,"Can't declare total number of NFTs as 0");
         for i in 0..total_number_of_nfts_to_add{
             indexes.push(&(total_number_of_nfts+i+1));
@@ -132,6 +131,7 @@ pub trait NftMint {
         let mut i=BigUint::from(1u32);
         let step=BigUint::from(1u32);
         while i<=nr_of_tokens{
+            let tokens_available=self.indexes().len();
             let number=rand_source.next_usize_in_range(1,tokens_available+1) as u32;
         
             let index=self.indexes().get(number.try_into().unwrap());

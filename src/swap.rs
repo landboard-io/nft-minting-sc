@@ -98,8 +98,8 @@ pub trait NftMint {
         let mut tokens_available=self.indexes().len();
         let mut rand_source = RandomnessSource::<Self::Api>::new();
         let total_number_of_nfts;
-        if tokens_available>2000usize{
-            total_number_of_nfts=2000usize;
+        if tokens_available>500usize{
+            total_number_of_nfts=500usize;
         }else{
             total_number_of_nfts=tokens_available;
         }
@@ -116,7 +116,7 @@ pub trait NftMint {
     #[only_owner]
     #[endpoint(setCid)]
     fn set_cid(&self, cid:ManagedBuffer){
-        let indexes=self.indexes();
+        let indexes=self.s_indexes();
         let total_number_of_nfts=self.total_number_of_nfts().get();
         require!(total_number_of_nfts as usize==indexes.len(),"Can't change cid after minting started");
         self.nft_token_cid().set(cid);
@@ -126,6 +126,23 @@ pub trait NftMint {
     #[endpoint(setRefPercent)]
     fn set_ref_percent(&self, reff:BigUint){
         self.ref_percent().set(reff);
+    }
+
+    #[endpoint(syncMemory)]
+    fn sync_memory(&self){
+        let mut number = match self.q_indexes().back() {
+            Some(number) => number,
+            None => 0,
+        };
+        let mut i=1u32;
+        while !self.s_indexes().contains(&number)&&i<300{
+            self.q_indexes().pop_back();
+            number = match self.q_indexes().back() {
+                Some(number) => number,
+                None => 0,
+            };
+            i+=1u32
+        }
     }
 
     #[payable("*")]
@@ -164,13 +181,12 @@ pub trait NftMint {
                 };
             }
             require!(number>0,"Can't mint index 0");
-            let index=self.indexes().get(number.try_into().unwrap());
             let token_id = self.nft_token_id().get();
-            let token_name=self.create_name(index);
-            let attributes=self.create_attributes(index);
+            let token_name=self.create_name(number);
+            let attributes=self.create_attributes(number);
             let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
             let attributes_hash = hash_buffer.as_managed_buffer();
-            let uris=self.create_uris(index);
+            let uris=self.create_uris(number);
 
             let nonce=self.send().esdt_nft_create(
                         &token_id,
@@ -212,14 +228,14 @@ pub trait NftMint {
     #[endpoint(mintSpecificNft)]
     fn mint_specific_nft(&self,number_to_mint:u32,#[var_args] ref_address: OptionalValue<ManagedAddress>){
         require!(self.is_paused().get()==false,"Contract is paused");
-        require!(self.indexes().len()>0usize,"Indexes are not populated");
+        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
         require!(self.max_per_tx().get()>0u64,"Max per tx not set");
         
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
         require!(payment_amount > 0u64, "Payment must be more than 0");
 
-        let price=self.selling_price(payment_token).get();
+        let price=self.selling_specific_price(payment_token).get();
         require!(&price>&BigUint::from(0u64),"Can't mint with this token");
         require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
 
@@ -227,7 +243,7 @@ pub trait NftMint {
         require!(&nr_of_tokens==&1u64,"Can only mint one specific NFT at a time");
         require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
         
-        let tokens_available=self.indexes().len();
+        let tokens_available=self.s_indexes().len();
         require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
         
         let mut number = match self.q_indexes().back() {
@@ -235,7 +251,7 @@ pub trait NftMint {
             None => 0,
         };
         let mut i=1u32;
-        while !self.s_indexes().contains(&number)&&i<300{
+        while !self.s_indexes().contains(&number)&&i<200{
             self.q_indexes().pop_back();
             number = match self.q_indexes().back() {
                 Some(number) => number,
@@ -288,7 +304,7 @@ pub trait NftMint {
     #[only_owner]
     #[endpoint(pause)]
     fn pause(&self){
-        require!(self.indexes().len()>0usize,"Indexes are not populated");
+        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
         require!(self.max_per_tx().get()>0u64,"Max per tx not set");
         let pause_value=&self.is_paused().get();
@@ -305,6 +321,13 @@ pub trait NftMint {
     fn set_price(&self, token_id:TokenIdentifier, price: BigUint) {
         require!(price>BigUint::from(0u32),"Can't set price to 0");
         self.selling_price(token_id).set(&price);
+    }
+
+    #[only_owner]
+    #[endpoint(setSpecificPrice)]
+    fn set_specific_price(&self, token_id:TokenIdentifier, price: BigUint) {
+        require!(price>BigUint::from(0u32),"Can't set price to 0");
+        self.selling_specific_price(token_id).set(&price);
     }
 
     #[only_owner]
@@ -426,6 +449,10 @@ pub trait NftMint {
     #[view(getSftPrice)]
     #[storage_mapper("sftPrice")]
     fn selling_price(&self, token_id:TokenIdentifier) -> SingleValueMapper<BigUint>;
+
+    #[view(getSftSpecificPrice)]
+    #[storage_mapper("sftSpecificPrice")]
+    fn selling_specific_price(&self, token_id:TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[view(getMaxPerTx)]
     #[storage_mapper("getMaxPerTx")]

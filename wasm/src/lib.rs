@@ -17,6 +17,7 @@ elrond_wasm_node::wasm_endpoints! {
         getNumberOfNfts
         getRefPercent
         getSftPrice
+        getSftSpecificPrice
         issueToken
         mintRandomNft
         mintSpecificNft
@@ -27,5 +28,7 @@ elrond_wasm_node::wasm_endpoints! {
         setMaxPerTx
         setPrice
         setRefPercent
+        setSpecificPrice
+        syncMemory
     )
 }

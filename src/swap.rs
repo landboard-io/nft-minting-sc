@@ -81,13 +81,36 @@ pub trait NftMint {
     #[endpoint(populateIndexes)]
     fn populate_indexes(&self, total_number_of_nfts_to_add:u32)->u32{
         let mut indexes=self.indexes();
+        let mut s_indexes=self.s_indexes();
         let total_number_of_nfts=self.total_number_of_nfts().get();
         require!(&total_number_of_nfts_to_add>=&0,"Can't declare total number of NFTs as 0");
         for i in 0..total_number_of_nfts_to_add{
             indexes.push(&(total_number_of_nfts+i+1));
+            s_indexes.insert(total_number_of_nfts+i+1);
         }
         self.total_number_of_nfts().set(total_number_of_nfts+total_number_of_nfts_to_add);
         self.total_number_of_nfts().get()
+    }
+
+    #[only_owner]
+    #[endpoint(depopulateIndexes)]
+    fn depopulate_indexes(&self)->usize{
+        let mut tokens_available=self.indexes().len();
+        let mut rand_source = RandomnessSource::<Self::Api>::new();
+        let total_number_of_nfts;
+        if tokens_available>2000usize{
+            total_number_of_nfts=2000usize;
+        }else{
+            total_number_of_nfts=tokens_available;
+        }
+        for _i in 0..total_number_of_nfts{
+            let number=rand_source.next_usize_in_range(1,tokens_available+1);
+            let nonce=self.indexes().get(number);
+            self.q_indexes().push_back(nonce);
+            self.indexes().swap_remove(number);
+            tokens_available=self.indexes().len();
+        }
+        self.indexes().len()
     }
 
     #[only_owner]
@@ -109,7 +132,7 @@ pub trait NftMint {
     #[endpoint(mintRandomNft)]
     fn mint_random_nft(&self,#[var_args] ref_address: OptionalValue<ManagedAddress>){
         require!(self.is_paused().get()==false,"Contract is paused");
-        require!(self.indexes().len()>0usize,"Indexes are not populated");
+        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
         require!(self.max_per_tx().get()>0u64,"Max per tx not set");
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
@@ -123,17 +146,24 @@ pub trait NftMint {
         require!(&nr_of_tokens>=&1u64,"Minimum amount to buy is 1");
         require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
         
-        let tokens_available=self.indexes().len();
+        let tokens_available=self.s_indexes().len();
         require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
 
         let mut payments = ManagedVec::new();
-        let mut rand_source = RandomnessSource::<Self::Api>::new();
         let mut i=BigUint::from(1u32);
         let step=BigUint::from(1u32);
         while i<=nr_of_tokens{
-            let tokens_available=self.indexes().len();
-            let number=rand_source.next_usize_in_range(1,tokens_available+1) as u32;
-        
+            let mut number = match self.q_indexes().pop_back() {
+                Some(number) => number,
+                None => 0,
+            };
+            while !self.s_indexes().contains(&number){
+                number = match self.q_indexes().pop_back() {
+                    Some(number) => number,
+                    None => 0,
+                };
+            }
+            require!(number>0,"Can't mint index 0");
             let index=self.indexes().get(number.try_into().unwrap());
             let token_id = self.nft_token_id().get();
             let token_name=self.create_name(index);
@@ -151,7 +181,7 @@ pub trait NftMint {
                         &attributes,
                         &uris);
             
-            self.indexes().swap_remove(number.try_into().unwrap());
+            self.s_indexes().remove(&number);
             payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
             i+=&step;
         }
@@ -180,7 +210,7 @@ pub trait NftMint {
 
     #[payable("*")]
     #[endpoint(mintSpecificNft)]
-    fn mint_specific_nft(&self,number:u32,#[var_args] ref_address: OptionalValue<ManagedAddress>){
+    fn mint_specific_nft(&self,number_to_mint:u32,#[var_args] ref_address: OptionalValue<ManagedAddress>){
         require!(self.is_paused().get()==false,"Contract is paused");
         require!(self.indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
@@ -200,21 +230,27 @@ pub trait NftMint {
         let tokens_available=self.indexes().len();
         require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
         
-        let indexes=self.indexes();
-        let mut index=0u32;
-        for i in indexes.iter(){
-            if number==i{
-                index=i;
-                break;
-            }}
-        require!(index>0,"NFT already minted");
+        let mut number = match self.q_indexes().back() {
+            Some(number) => number,
+            None => 0,
+        };
+        let mut i=1u32;
+        while !self.s_indexes().contains(&number)&&i<300{
+            self.q_indexes().pop_back();
+            number = match self.q_indexes().back() {
+                Some(number) => number,
+                None => 0,
+            };
+            i+=1u32
+        }
+        require!(self.s_indexes().contains(&number_to_mint),"NFT already minted");
 
         let token_id = self.nft_token_id().get();
-        let token_name=self.create_name(index);
-        let attributes=self.create_attributes(index);
+        let token_name=self.create_name(number_to_mint);
+        let attributes=self.create_attributes(number_to_mint);
         let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
         let attributes_hash = hash_buffer.as_managed_buffer();
-        let uris=self.create_uris(index);
+        let uris=self.create_uris(number_to_mint);
 
         let nonce=self.send().esdt_nft_create(
                     &token_id,
@@ -225,7 +261,7 @@ pub trait NftMint {
                     &attributes,
                     &uris);
         
-        self.indexes().swap_remove(index.try_into().unwrap());
+        self.s_indexes().remove(&number_to_mint);
 
         let caller = self.blockchain().get_caller();
         self.send().direct(&caller, &token_id, nonce, &BigUint::from(1u32), &[]);
@@ -376,6 +412,12 @@ pub trait NftMint {
     #[view(getIndexes)]
     #[storage_mapper("indexes")]
     fn indexes(&self) -> VecMapper<u32>;
+
+    #[storage_mapper("qIndexes")]
+    fn q_indexes(&self) -> QueueMapper<u32>;
+
+    #[storage_mapper("sIndexes")]
+    fn s_indexes(&self) -> SetMapper<u32>;
 
     //SELLING
     #[storage_mapper("is_paused")]

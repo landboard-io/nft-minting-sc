@@ -226,7 +226,8 @@ pub trait NftMint {
 
     #[payable("*")]
     #[endpoint(mintSpecificNft)]
-    fn mint_specific_nft(&self,number_to_mint:u32,#[var_args] ref_address: OptionalValue<ManagedAddress>){
+    fn mint_specific_nft(&self,numbers_to_mint:ManagedVec<u32>,#[var_args] ref_address: OptionalValue<ManagedAddress>){
+        let caller = self.blockchain().get_caller();
         require!(self.is_paused().get()==false,"Contract is paused");
         require!(self.s_indexes().len()>0usize,"Indexes are not populated");
         require!(!self.nft_token_cid().is_empty(),"CID is not set");
@@ -259,29 +260,33 @@ pub trait NftMint {
             };
             i+=1u32
         }
-        require!(self.s_indexes().contains(&number_to_mint),"NFT already minted");
 
-        let token_id = self.nft_token_id().get();
-        let token_name=self.create_name(number_to_mint);
-        let attributes=self.create_attributes(number_to_mint);
-        let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
-        let attributes_hash = hash_buffer.as_managed_buffer();
-        let uris=self.create_uris(number_to_mint);
-
-        let nonce=self.send().esdt_nft_create(
-                    &token_id,
-                    &BigUint::from(1u64),
-                    &token_name,
-                    &BigUint::from(ROYALTIES),
-                    &attributes_hash,
-                    &attributes,
-                    &uris);
+        for number in numbers_to_mint.iter(){
+            require!(self.s_indexes().contains(&number),"One of the NFTs requested was already minted");
+        }
+        for number_to_mint in numbers_to_mint.iter(){
+            let token_id = self.nft_token_id().get();
+            let token_name=self.create_name(number_to_mint);
+            let attributes=self.create_attributes(number_to_mint);
+            let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+            let attributes_hash = hash_buffer.as_managed_buffer();
+            let uris=self.create_uris(number_to_mint);
+    
+            let nonce=self.send().esdt_nft_create(
+                        &token_id,
+                        &BigUint::from(1u64),
+                        &token_name,
+                        &BigUint::from(ROYALTIES),
+                        &attributes_hash,
+                        &attributes,
+                        &uris);
+            
+            self.s_indexes().remove(&number_to_mint);
+    
+            
+            self.send().direct(&caller, &token_id, nonce, &BigUint::from(1u32), &[]);
+        }
         
-        self.s_indexes().remove(&number_to_mint);
-
-        let caller = self.blockchain().get_caller();
-        self.send().direct(&caller, &token_id, nonce, &BigUint::from(1u32), &[]);
-
         let owner = self.blockchain().get_owner_address();
         let (pay_amount,pay_token)=self.call_value().payment_token_pair();
 

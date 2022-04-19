@@ -15,6 +15,8 @@ elrond_wasm_node::wasm_endpoints! {
         getNftTokenId
         getNftTokenName
         getNumberOfNfts
+        getRefCount
+        getRefMoney
         getRefPercent
         getSftPrice
         getSftSpecificPrice

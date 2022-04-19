@@ -243,7 +243,7 @@ pub trait NftMint {
         require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
 
         let nr_of_tokens=&payment_amount/&price;
-        require!(&nr_of_tokens==&1u64,"Can only mint one specific NFT at a time");
+        require!(&nr_of_tokens==&BigUint::from(numbers_to_mint.len()),"Wrong payment amount sent");
         require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
         
         let tokens_available=self.s_indexes().len();

@@ -217,6 +217,8 @@ pub trait NftMint {
                     ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
                     self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
                     self.is_first_mint(&ref_addr).set(false);
+                    self.ref_count(&ref_addr).set(self.ref_count(&ref_addr).get()+1u32);
+                    self.ref_money(&ref_addr).set(self.ref_money(&ref_addr).get()+&ref_amount);
                 }
             }
         }
@@ -299,6 +301,8 @@ pub trait NftMint {
                     ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
                     self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
                     self.is_first_mint(&ref_addr).set(false);
+                    self.ref_count(&ref_addr).set(self.ref_count(&ref_addr).get()+1u32);
+                    self.ref_money(&ref_addr).set(self.ref_money(&ref_addr).get()+&ref_amount);
                 }
             }
         }
@@ -466,6 +470,14 @@ pub trait NftMint {
     #[view(getRefPercent)]
     #[storage_mapper("getRefPercent")]
     fn ref_percent(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getRefMoney)]
+    #[storage_mapper("getRefMoney")]
+    fn ref_money(&self, address:&ManagedAddress) -> SingleValueMapper<BigUint>;
+
+    #[view(getRefCount)]
+    #[storage_mapper("getRefCount")]
+    fn ref_count(&self, address:&ManagedAddress) -> SingleValueMapper<u32>;
 
     #[storage_mapper("isFirstMint")]
     fn is_first_mint(&self, address:&ManagedAddress) -> SingleValueMapper<bool>;

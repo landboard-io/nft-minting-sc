@@ -128,6 +128,12 @@ pub trait NftMint {
         self.ref_percent().set(reff);
     }
 
+    #[only_owner]
+    #[endpoint(setDiscountPercent)]
+    fn set_discount_percent(&self, disc:BigUint){
+        self.discount_percent().set(disc);
+    }
+
     #[endpoint(syncMemory)]
     fn sync_memory(&self){
         let mut number = match self.q_indexes().back() {
@@ -209,13 +215,17 @@ pub trait NftMint {
         let (pay_amount,pay_token)=self.call_value().payment_token_pair();
 
         let mut ref_amount=BigUint::from(0u32);
+        let mut discount_amount=BigUint::from(0u32);
         let ref_percent=self.ref_percent().get();
-        if ref_percent>BigUint::from(0u32){
+        let discount_percent=self.discount_percent().get();
+        if ref_percent>BigUint::from(0u32)&&discount_percent>BigUint::from(0u32){
             if let OptionalValue::Some(ref_addr)=ref_address{
                 require!(caller!=ref_addr,"Caller can't refer themselves");
                 if self.is_first_mint(&ref_addr).is_empty()||self.is_first_mint(&ref_addr).get(){
                     ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
+                    discount_amount=&pay_amount*&discount_percent/BigUint::from(100u32);
                     self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
+                    self.send().direct(&caller,&pay_token,0,&discount_amount,&[]);
                     self.is_first_mint(&ref_addr).set(false);
                     self.ref_count(&ref_addr).set(self.ref_count(&ref_addr).get()+1u32);
                     self.ref_money(&ref_addr).set(self.ref_money(&ref_addr).get()+&ref_amount);
@@ -223,7 +233,7 @@ pub trait NftMint {
             }
         }
 
-        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount), &[]);
+        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount-discount_amount), &[]);
     }
 
     #[payable("*")]
@@ -293,20 +303,24 @@ pub trait NftMint {
         let (pay_amount,pay_token)=self.call_value().payment_token_pair();
 
         let mut ref_amount=BigUint::from(0u32);
+        let mut discount_amount=BigUint::from(0u32);
         let ref_percent=self.ref_percent().get();
-        if ref_percent>BigUint::from(0u32){
+        let discount_percent=self.discount_percent().get();
+        if ref_percent>BigUint::from(0u32)&&discount_percent>BigUint::from(0u32){
             if let OptionalValue::Some(ref_addr)=ref_address{
                 require!(caller!=ref_addr,"Caller can't refer themselves");
                 if self.is_first_mint(&ref_addr).is_empty()||self.is_first_mint(&ref_addr).get(){
                     ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
+                    discount_amount=&pay_amount*&discount_percent/BigUint::from(100u32);
                     self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
+                    self.send().direct(&caller,&pay_token,0,&discount_amount,&[]);
                     self.is_first_mint(&ref_addr).set(false);
                     self.ref_count(&ref_addr).set(self.ref_count(&ref_addr).get()+1u32);
                     self.ref_money(&ref_addr).set(self.ref_money(&ref_addr).get()+&ref_amount);
                 }
             }
         }
-        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount), &[]);
+        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount-discount_amount), &[]);
     }
 
     //STATE
@@ -470,6 +484,10 @@ pub trait NftMint {
     #[view(getRefPercent)]
     #[storage_mapper("getRefPercent")]
     fn ref_percent(&self) -> SingleValueMapper<BigUint>;
+
+    #[view(getDiscountPercent)]
+    #[storage_mapper("getDiscountPercent")]
+    fn discount_percent(&self) -> SingleValueMapper<BigUint>;
 
     #[view(getRefMoney)]
     #[storage_mapper("getRefMoney")]

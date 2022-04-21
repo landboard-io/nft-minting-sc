@@ -9,6 +9,7 @@ elrond_wasm_node::wasm_endpoints! {
     (
         callBack
         depopulateIndexes
+        getDiscountPercent
         getIndexes
         getMaxPerTx
         getNftTokenCid
@@ -26,6 +27,7 @@ elrond_wasm_node::wasm_endpoints! {
         pause
         populateIndexes
         setCid
+        setDiscountPercent
         setLocalRoles
         setMaxPerTx
         setPrice

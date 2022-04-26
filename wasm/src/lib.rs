@@ -21,6 +21,7 @@ elrond_wasm_node::wasm_endpoints! {
         getRefPercent
         getSftPrice
         getSftSpecificPrice
+        giveaway
         issueToken
         mintRandomNft
         mintSpecificNft

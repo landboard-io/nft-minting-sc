@@ -323,6 +323,67 @@ pub trait NftMint {
         self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount-discount_amount), &[]);
     }
 
+    #[only_owner]
+    #[endpoint(giveaway)]
+    fn giveaway(&self,number_to_mint:BigUint,giveaway_address: ManagedAddress){
+        require!(self.is_paused().get()==false,"Contract is paused");
+        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(),"CID is not set");
+        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
+        let (payment_amount, payment_token) = self.call_value().payment_token_pair();
+        require!(payment_amount > 0u64, "Payment must be more than 0");
+
+        let price=self.selling_price(payment_token).get();
+        require!(&price>&BigUint::from(0u64),"Can't mint with this token");
+        require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
+
+        let nr_of_tokens=number_to_mint;
+        require!(&nr_of_tokens>=&1u64,"Minimum amount to buy is 1");
+        require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
+        
+        let tokens_available=self.s_indexes().len();
+        require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
+
+        let mut payments = ManagedVec::new();
+        let mut i=BigUint::from(1u32);
+        let step=BigUint::from(1u32);
+        while i<=nr_of_tokens{
+            let mut number = match self.q_indexes().pop_back() {
+                Some(number) => number,
+                None => 0,
+            };
+            while !self.s_indexes().contains(&number){
+                number = match self.q_indexes().pop_back() {
+                    Some(number) => number,
+                    None => 0,
+                };
+            }
+            require!(number>0,"Can't mint index 0");
+            let token_id = self.nft_token_id().get();
+            let token_name=self.create_name(number);
+            let attributes=self.create_attributes(number);
+            let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+            let attributes_hash = hash_buffer.as_managed_buffer();
+            let uris=self.create_uris(number);
+
+            let nonce=self.send().esdt_nft_create(
+                        &token_id,
+                        &BigUint::from(1u64),
+                        &token_name,
+                        &BigUint::from(ROYALTIES),
+                        &attributes_hash,
+                        &attributes,
+                        &uris);
+            
+            self.s_indexes().remove(&number);
+            payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
+            i+=&step;
+        }
+
+        let caller = giveaway_address;
+        self.send().direct_multi(&caller, &payments, &[]);
+    }
+
     //STATE
     #[only_owner]
     #[endpoint(pause)]

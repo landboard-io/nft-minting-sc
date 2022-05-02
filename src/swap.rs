@@ -499,7 +499,7 @@ pub trait NftMint {
 
     #[view(getDidMint)]
     fn did_mint(&self, address: ManagedAddress) -> bool { 
-        if self.is_first_mint(&address).is_empty()||self.is_first_mint(&address).get()==false
+        if self.is_first_mint(&address).is_empty()||self.is_first_mint(&address).get()==true
             {false}
         else
             {true}

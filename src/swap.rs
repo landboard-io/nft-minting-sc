@@ -558,6 +558,7 @@ pub trait NftMint {
     #[storage_mapper("getRefCount")]
     fn ref_count(&self, address:&ManagedAddress) -> SingleValueMapper<u32>;
 
+    #[view(getDidMint)]
     #[storage_mapper("isFirstMint")]
     fn is_first_mint(&self, address:&ManagedAddress) -> SingleValueMapper<bool>;
 }

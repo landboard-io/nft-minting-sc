@@ -497,6 +497,16 @@ pub trait NftMint {
             .unwrap_or_else(|| self.blockchain().get_owner_address())
     }
 
+    #[endpoint(getDidMint)]
+    fn did_mint(&self, address: ManagedAddress) -> bool { 
+        if self.is_first_mint(&address).is_empty()||self.is_first_mint(&address).get()==false
+            {false}
+        else
+            {true}
+    }
+
+    
+
     //STORAGE
 
     //NFTS
@@ -558,7 +568,6 @@ pub trait NftMint {
     #[storage_mapper("getRefCount")]
     fn ref_count(&self, address:&ManagedAddress) -> SingleValueMapper<u32>;
 
-    #[view(getDidMint)]
     #[storage_mapper("isFirstMint")]
     fn is_first_mint(&self, address:&ManagedAddress) -> SingleValueMapper<bool>;
 }

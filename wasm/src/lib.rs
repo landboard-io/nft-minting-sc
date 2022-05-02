@@ -9,6 +9,7 @@ elrond_wasm_node::wasm_endpoints! {
     (
         callBack
         depopulateIndexes
+        getDidMint
         getDiscountPercent
         getIndexes
         getMaxPerTx

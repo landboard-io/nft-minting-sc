@@ -8,7 +8,6 @@ elrond_wasm_node::wasm_endpoints! {
     sftmint
     (
         callBack
-        depopulateIndexes
         getDidMint
         getDiscountPercent
         getIndexes
@@ -35,6 +34,5 @@ elrond_wasm_node::wasm_endpoints! {
         setPrice
         setRefPercent
         setSpecificPrice
-        syncMemory
     )
 }

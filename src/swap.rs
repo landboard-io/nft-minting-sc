@@ -1,7 +1,6 @@
 #![no_std]
 
-
-const ROYALTIES: u32 = 10_00;
+const ROYALTIES: u64 = 10_00;
 const HASH_DATA_BUFFER_LEN: usize = 1024;
 
 use core::convert::TryInto;
@@ -20,25 +19,32 @@ pub trait NftMint {
     #[only_owner]
     #[payable("EGLD")]
     #[endpoint(issueToken)]
-    fn issue_collection(&self,#[payment] issue_cost:BigUint,collection_name:ManagedBuffer,collection_ticker:ManagedBuffer){
+    fn issue_collection(
+        &self,
+        #[payment] issue_cost: BigUint,
+        collection_name: ManagedBuffer,
+        collection_ticker: ManagedBuffer,
+    ) {
         require!(self.nft_token_id().is_empty(), "Token already issued!");
         self.nft_token_name().set(&collection_name);
-        self.send().esdt_system_sc_proxy().issue_non_fungible(
-            issue_cost,
-            &collection_name,
-            &collection_ticker,
-            NonFungibleTokenProperties {
-                can_freeze: true,
-                can_wipe: true,
-                can_pause: true,
-                can_change_owner: true,
-                can_upgrade: true,
-                can_add_special_roles: true,
-            }
-        )
-        .async_call()
-        .with_callback(self.callbacks().issue_callback())
-        .call_and_exit()
+        self.send()
+            .esdt_system_sc_proxy()
+            .issue_non_fungible(
+                issue_cost,
+                &collection_name,
+                &collection_ticker,
+                NonFungibleTokenProperties {
+                    can_freeze: true,
+                    can_wipe: true,
+                    can_pause: true,
+                    can_change_owner: true,
+                    can_upgrade: true,
+                    can_add_special_roles: true,
+                },
+            )
+            .async_call()
+            .with_callback(self.callbacks().issue_callback())
+            .call_and_exit()
     }
 
     #[callback]
@@ -62,16 +68,13 @@ pub trait NftMint {
     #[endpoint(setLocalRoles)]
     fn set_local_roles(&self) {
         require!(!self.nft_token_id().is_empty(), "Token not issued!");
-        let roles = [
-            EsdtLocalRole::NftCreate,
-            EsdtLocalRole::NftBurn,
-        ];
+        let roles = [EsdtLocalRole::NftCreate, EsdtLocalRole::NftBurn];
         self.send()
             .esdt_system_sc_proxy()
             .set_special_roles(
                 &self.blockchain().get_sc_address(),
                 &self.nft_token_id().get(),
-                roles.iter().cloned()
+                roles.iter().cloned(),
             )
             .async_call()
             .call_and_exit()
@@ -79,305 +82,365 @@ pub trait NftMint {
 
     #[only_owner]
     #[endpoint(populateIndexes)]
-    fn populate_indexes(&self, total_number_of_nfts_to_add:u32)->u32{
-        let mut indexes=self.indexes();
-        let mut s_indexes=self.s_indexes();
-        let total_number_of_nfts=self.total_number_of_nfts().get();
-        require!(&total_number_of_nfts_to_add>=&0,"Can't declare total number of NFTs as 0");
-        for i in 0..total_number_of_nfts_to_add{
-            indexes.push(&(total_number_of_nfts+i+1));
-            s_indexes.insert(total_number_of_nfts+i+1);
+    fn populate_indexes(&self, total_number_of_nfts_to_add: u64) -> u64 {
+        let mut indexes = self.s_indexes();
+        let total_number_of_nfts = self.total_number_of_nfts().get();
+        require!(
+            &total_number_of_nfts_to_add >= &0,
+            "Can't declare total number of NFTs as 0"
+        );
+        for i in 0..total_number_of_nfts_to_add {
+            indexes.insert(total_number_of_nfts + i + 1);
         }
-        self.total_number_of_nfts().set(total_number_of_nfts+total_number_of_nfts_to_add);
+        self.total_number_of_nfts()
+            .set(total_number_of_nfts + total_number_of_nfts_to_add);
         self.total_number_of_nfts().get()
     }
 
     #[only_owner]
-    #[endpoint(depopulateIndexes)]
-    fn depopulate_indexes(&self)->usize{
-        let mut tokens_available=self.indexes().len();
-        let mut rand_source = RandomnessSource::<Self::Api>::new();
-        let total_number_of_nfts;
-        if tokens_available>500usize{
-            total_number_of_nfts=500usize;
-        }else{
-            total_number_of_nfts=tokens_available;
+    #[endpoint(populateBridgeIndexes)]
+    fn populate_bridge_indexes(
+        &self,
+        old_collection: TokenIdentifier,
+        #[var_args] pairs: MultiValueEncoded<MultiValue2<u64, u64>>,
+    ) {
+        let mut indexes = self.s_indexes();
+        let mut bridge_indexes = self.bridge_indexes(&old_collection);
+        for item in pairs.into_iter() {
+            let tuple = item.into_tuple();
+            require!(indexes.contains(&tuple.1), "Index not found");
+            require!(
+                !bridge_indexes.contains_key(&tuple.0),
+                "Index already in bridge"
+            );
+            bridge_indexes.insert(tuple.0, tuple.1);
+            indexes.swap_remove(&tuple.1);
+            self.total_number_of_nfts().update(|v| *v -= 1u64);
         }
-        for _i in 0..total_number_of_nfts{
-            let number=rand_source.next_usize_in_range(1,tokens_available+1);
-            let nonce=self.indexes().get(number);
-            self.q_indexes().push_back(nonce);
-            self.indexes().swap_remove(number);
-            tokens_available=self.indexes().len();
-        }
-        self.indexes().len()
     }
 
     #[only_owner]
     #[endpoint(setCid)]
-    fn set_cid(&self, cid:ManagedBuffer){
-        let indexes=self.s_indexes();
-        let total_number_of_nfts=self.total_number_of_nfts().get();
-        require!(total_number_of_nfts as usize==indexes.len(),"Can't change cid after minting started");
+    fn set_cid(&self, cid: ManagedBuffer) {
+        let indexes = self.s_indexes();
+        let total_number_of_nfts = self.total_number_of_nfts().get();
+        require!(
+            total_number_of_nfts as usize == indexes.len(),
+            "Can't change cid after minting started"
+        );
         self.nft_token_cid().set(cid);
     }
 
     #[only_owner]
     #[endpoint(setRefPercent)]
-    fn set_ref_percent(&self, reff:BigUint){
+    fn set_ref_percent(&self, reff: BigUint) {
         self.ref_percent().set(reff);
     }
 
     #[only_owner]
     #[endpoint(setDiscountPercent)]
-    fn set_discount_percent(&self, disc:BigUint){
+    fn set_discount_percent(&self, disc: BigUint) {
         self.discount_percent().set(disc);
-    }
-
-    #[endpoint(syncMemory)]
-    fn sync_memory(&self){
-        let mut number = match self.q_indexes().back() {
-            Some(number) => number,
-            None => 0,
-        };
-        let mut i=1u32;
-        while !self.s_indexes().contains(&number)&&i<300{
-            self.q_indexes().pop_back();
-            number = match self.q_indexes().back() {
-                Some(number) => number,
-                None => 0,
-            };
-            i+=1u32
-        }
     }
 
     #[payable("*")]
     #[endpoint(mintRandomNft)]
-    fn mint_random_nft(&self,#[var_args] ref_address: OptionalValue<ManagedAddress>){
-        require!(self.is_paused().get()==false,"Contract is paused");
-        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
-        require!(!self.nft_token_cid().is_empty(),"CID is not set");
-        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
+    fn mint_random_nft(&self, #[var_args] ref_address: OptionalValue<ManagedAddress>) {
+        require!(self.is_paused().get() == false, "Contract is paused");
+        require!(self.s_indexes().len() > 0usize, "Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(), "CID is not set");
+        require!(self.max_per_tx().get() > 0u64, "Max per tx not set");
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
         require!(payment_amount > 0u64, "Payment must be more than 0");
 
-        let price=self.selling_price(payment_token).get();
-        require!(&price>&BigUint::from(0u64),"Can't mint with this token");
-        require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
+        let price = self.selling_price(payment_token).get();
+        require!(&price > &BigUint::from(0u64), "Can't mint with this token");
+        require!(
+            &payment_amount % &price == 0u64,
+            "Wrong payment amount sent"
+        );
 
-        let nr_of_tokens=&payment_amount/&price;
-        require!(&nr_of_tokens>=&1u64,"Minimum amount to buy is 1");
-        require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
-        
-        let tokens_available=self.s_indexes().len();
-        require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
+        let nr_of_tokens = &payment_amount / &price;
+        require!(&nr_of_tokens >= &1u64, "Minimum amount to buy is 1");
+        require!(
+            &nr_of_tokens <= &self.max_per_tx().get(),
+            "Can't mint more than max per tx"
+        );
+
+        let tokens_available = self.s_indexes().len();
+        require!(
+            &nr_of_tokens <= &BigUint::from(tokens_available),
+            "Not enough NFTs to mint"
+        );
 
         let mut payments = ManagedVec::new();
-        let mut i=BigUint::from(1u32);
-        let step=BigUint::from(1u32);
-        while i<=nr_of_tokens{
-            let mut number = match self.q_indexes().pop_back() {
-                Some(number) => number,
-                None => 0,
-            };
-            while !self.s_indexes().contains(&number){
-                number = match self.q_indexes().pop_back() {
-                    Some(number) => number,
-                    None => 0,
-                };
-            }
-            require!(number>0,"Can't mint index 0");
+        let mut rand_source = RandomnessSource::<Self::Api>::new();
+        let mut i = BigUint::from(1u64);
+        let step = BigUint::from(1u64);
+        while i <= nr_of_tokens {
+            let tokens_available = self.s_indexes().len();
+            let number = rand_source.next_usize_in_range(1, tokens_available + 1) as u64;
+            let index = self.v_indexes().get(number as usize);
             let token_id = self.nft_token_id().get();
-            let token_name=self.create_name(number);
-            let attributes=self.create_attributes(number);
-            let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+            let token_name = self.create_name(index);
+            let attributes = self.create_attributes(index);
+            let hash_buffer = self
+                .crypto()
+                .sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
             let attributes_hash = hash_buffer.as_managed_buffer();
-            let uris=self.create_uris(number);
+            let uris = self.create_uris(index);
 
-            let nonce=self.send().esdt_nft_create(
-                        &token_id,
-                        &BigUint::from(1u64),
-                        &token_name,
-                        &BigUint::from(ROYALTIES),
-                        &attributes_hash,
-                        &attributes,
-                        &uris);
-            
-            self.s_indexes().remove(&number);
+            let nonce = self.send().esdt_nft_create(
+                &token_id,
+                &BigUint::from(1u64),
+                &token_name,
+                &BigUint::from(ROYALTIES),
+                &attributes_hash,
+                &attributes,
+                &uris,
+            );
+
+            self.s_indexes().swap_remove(&index);
             payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
-            i+=&step;
+            i += &step;
         }
 
         let caller = self.blockchain().get_caller();
         self.send().direct_multi(&caller, &payments, &[]);
 
         let owner = self.blockchain().get_owner_address();
-        let (pay_amount,pay_token)=self.call_value().payment_token_pair();
+        let (pay_amount, pay_token) = self.call_value().payment_token_pair();
 
-        let mut ref_amount=BigUint::from(0u32);
-        let mut discount_amount=BigUint::from(0u32);
-        let ref_percent=self.ref_percent().get();
-        let discount_percent=self.discount_percent().get();
-        if ref_percent>BigUint::from(0u32)&&discount_percent>BigUint::from(0u32){
-            if let OptionalValue::Some(ref_addr)=ref_address{
-                require!(caller!=ref_addr,"Caller can't refer themselves");
-                if self.is_first_mint(&ref_addr).is_empty()||self.is_first_mint(&ref_addr).get(){
-                    ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
-                    discount_amount=&pay_amount*&discount_percent/BigUint::from(100u32);
-                    self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
-                    self.send().direct(&caller,&pay_token,0,&discount_amount,&[]);
-                    self.is_first_mint(&ref_addr).set(false);
-                    self.ref_count(&ref_addr).set(self.ref_count(&ref_addr).get()+1u32);
-                    self.ref_money(&ref_addr).set(self.ref_money(&ref_addr).get()+&ref_amount);
+        let mut ref_amount = BigUint::from(0u64);
+        let mut discount_amount = BigUint::from(0u64);
+        let ref_percent = self.ref_percent().get();
+        let discount_percent = self.discount_percent().get();
+        if ref_percent > BigUint::from(0u64) && discount_percent > BigUint::from(0u64) {
+            if let OptionalValue::Some(ref_addr) = ref_address {
+                require!(caller != ref_addr, "Caller can't refer themselves");
+                if self.is_first_mint(&caller).is_empty() || self.is_first_mint(&caller).get() {
+                    ref_amount = &pay_amount * &ref_percent / BigUint::from(100u64);
+                    discount_amount = &pay_amount * &discount_percent / BigUint::from(100u64);
+                    self.send()
+                        .direct(&ref_addr, &pay_token, 0, &ref_amount, &[]);
+                    self.send()
+                        .direct(&caller, &pay_token, 0, &discount_amount, &[]);
+                    self.ref_count(&ref_addr)
+                        .set(self.ref_count(&ref_addr).get() + 1u64);
+                    self.ref_money(&ref_addr)
+                        .set(self.ref_money(&ref_addr).get() + &ref_amount);
                 }
             }
         }
-
-        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount-discount_amount), &[]);
+        self.is_first_mint(&caller).set(false);
+        self.send().direct(
+            &owner,
+            &pay_token,
+            0,
+            &(pay_amount - ref_amount - discount_amount),
+            &[],
+        );
     }
 
     #[payable("*")]
     #[endpoint(mintSpecificNft)]
-    fn mint_specific_nft(&self,numbers_to_mint:ManagedVec<u32>,#[var_args] ref_address: OptionalValue<ManagedAddress>){
+    fn mint_specific_nft(
+        &self,
+        numbers_to_mint: ManagedVec<u64>,
+        #[var_args] ref_address: OptionalValue<ManagedAddress>,
+    ) {
         let caller = self.blockchain().get_caller();
-        require!(self.is_paused().get()==false,"Contract is paused");
-        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
-        require!(!self.nft_token_cid().is_empty(),"CID is not set");
-        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
-        
+        require!(self.is_paused().get() == false, "Contract is paused");
+        require!(self.s_indexes().len() > 0usize, "Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(), "CID is not set");
+        require!(self.max_per_tx().get() > 0u64, "Max per tx not set");
+
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
         require!(payment_amount > 0u64, "Payment must be more than 0");
 
-        let price=self.selling_specific_price(payment_token).get();
-        require!(&price>&BigUint::from(0u64),"Can't mint with this token");
-        require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
+        let price = self.selling_specific_price(payment_token).get();
+        require!(&price > &BigUint::from(0u64), "Can't mint with this token");
+        require!(
+            &payment_amount % &price == 0u64,
+            "Wrong payment amount sent"
+        );
 
-        let nr_of_tokens=&payment_amount/&price;
-        require!(&nr_of_tokens==&BigUint::from(numbers_to_mint.len()),"Wrong payment amount sent");
-        require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
-        
-        let tokens_available=self.s_indexes().len();
-        require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
-        
-        let mut number = match self.q_indexes().back() {
-            Some(number) => number,
-            None => 0,
-        };
-        let mut i=1u32;
-        while !self.s_indexes().contains(&number)&&i<200{
-            self.q_indexes().pop_back();
-            number = match self.q_indexes().back() {
-                Some(number) => number,
-                None => 0,
-            };
-            i+=1u32
-        }
+        let nr_of_tokens = &payment_amount / &price;
+        require!(
+            &nr_of_tokens == &BigUint::from(numbers_to_mint.len()),
+            "Wrong payment amount sent"
+        );
+        require!(
+            &nr_of_tokens <= &self.max_per_tx().get(),
+            "Can't mint more than max per tx"
+        );
 
-        for number in numbers_to_mint.iter(){
-            require!(self.s_indexes().contains(&number),"One of the NFTs requested was already minted");
-        }
-        for number_to_mint in numbers_to_mint.iter(){
+        let tokens_available = self.s_indexes().len();
+        require!(
+            &nr_of_tokens <= &BigUint::from(tokens_available),
+            "Not enough NFTs to mint"
+        );
+
+        for number_to_mint in numbers_to_mint.iter() {
+            require!(
+                self.s_indexes().contains(&number_to_mint),
+                "One of the NFTs requested was already minted"
+            );
             let token_id = self.nft_token_id().get();
-            let token_name=self.create_name(number_to_mint);
-            let attributes=self.create_attributes(number_to_mint);
-            let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+            let token_name = self.create_name(number_to_mint);
+            let attributes = self.create_attributes(number_to_mint);
+            let hash_buffer = self
+                .crypto()
+                .sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
             let attributes_hash = hash_buffer.as_managed_buffer();
-            let uris=self.create_uris(number_to_mint);
-    
-            let nonce=self.send().esdt_nft_create(
-                        &token_id,
-                        &BigUint::from(1u64),
-                        &token_name,
-                        &BigUint::from(ROYALTIES),
-                        &attributes_hash,
-                        &attributes,
-                        &uris);
-            
-            self.s_indexes().remove(&number_to_mint);
-    
-            
-            self.send().direct(&caller, &token_id, nonce, &BigUint::from(1u32), &[]);
-        }
-        
-        let owner = self.blockchain().get_owner_address();
-        let (pay_amount,pay_token)=self.call_value().payment_token_pair();
+            let uris = self.create_uris(number_to_mint);
 
-        let mut ref_amount=BigUint::from(0u32);
-        let mut discount_amount=BigUint::from(0u32);
-        let ref_percent=self.ref_percent().get();
-        let discount_percent=self.discount_percent().get();
-        if ref_percent>BigUint::from(0u32)&&discount_percent>BigUint::from(0u32){
-            if let OptionalValue::Some(ref_addr)=ref_address{
-                require!(caller!=ref_addr,"Caller can't refer themselves");
-                if self.is_first_mint(&ref_addr).is_empty()||self.is_first_mint(&ref_addr).get(){
-                    ref_amount=&pay_amount*&ref_percent/BigUint::from(100u32);
-                    discount_amount=&pay_amount*&discount_percent/BigUint::from(100u32);
-                    self.send().direct(&ref_addr,&pay_token,0,&ref_amount,&[]);
-                    self.send().direct(&caller,&pay_token,0,&discount_amount,&[]);
-                    self.is_first_mint(&ref_addr).set(false);
-                    self.ref_count(&ref_addr).set(self.ref_count(&ref_addr).get()+1u32);
-                    self.ref_money(&ref_addr).set(self.ref_money(&ref_addr).get()+&ref_amount);
+            let nonce = self.send().esdt_nft_create(
+                &token_id,
+                &BigUint::from(1u64),
+                &token_name,
+                &BigUint::from(ROYALTIES),
+                &attributes_hash,
+                &attributes,
+                &uris,
+            );
+
+            self.s_indexes().swap_remove(&number_to_mint);
+
+            self.send()
+                .direct(&caller, &token_id, nonce, &BigUint::from(1u64), &[]);
+        }
+
+        let owner = self.blockchain().get_owner_address();
+        let (pay_amount, pay_token) = self.call_value().payment_token_pair();
+
+        let mut ref_amount = BigUint::from(0u64);
+        let mut discount_amount = BigUint::from(0u64);
+        let ref_percent = self.ref_percent().get();
+        let discount_percent = self.discount_percent().get();
+        if ref_percent > BigUint::from(0u64) && discount_percent > BigUint::from(0u64) {
+            if let OptionalValue::Some(ref_addr) = ref_address {
+                require!(caller != ref_addr, "Caller can't refer themselves");
+                if self.is_first_mint(&caller).is_empty() || self.is_first_mint(&caller).get() {
+                    ref_amount = &pay_amount * &ref_percent / BigUint::from(100u64);
+                    discount_amount = &pay_amount * &discount_percent / BigUint::from(100u64);
+                    self.send()
+                        .direct(&ref_addr, &pay_token, 0, &ref_amount, &[]);
+                    self.send()
+                        .direct(&caller, &pay_token, 0, &discount_amount, &[]);
+                    self.ref_count(&ref_addr)
+                        .set(self.ref_count(&ref_addr).get() + 1u64);
+                    self.ref_money(&ref_addr)
+                        .set(self.ref_money(&ref_addr).get() + &ref_amount);
                 }
             }
         }
-        self.send().direct(&owner, &pay_token, 0, &(pay_amount-ref_amount-discount_amount), &[]);
+        self.is_first_mint(&caller).set(false);
+        self.send().direct(
+            &owner,
+            &pay_token,
+            0,
+            &(pay_amount - ref_amount - discount_amount),
+            &[],
+        );
+    }
+
+    #[payable("*")]
+    #[endpoint(bridgeNfts)]
+    fn bridge_nfts(&self) {
+        let caller = self.blockchain().get_caller();
+        let payments = self.call_value().all_esdt_transfers();
+        for nft in payments.iter() {
+            if let Some(index) = self
+                .bridge_indexes(&nft.token_identifier)
+                .remove(&nft.token_nonce)
+            {
+                let token_id = self.nft_token_id().get();
+                let token_name = self.create_name(index);
+                let attributes = self.create_attributes(index);
+                let hash_buffer = self
+                    .crypto()
+                    .sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+                let attributes_hash = hash_buffer.as_managed_buffer();
+                let uris = self.create_uris(index);
+
+                let nonce = self.send().esdt_nft_create(
+                    &token_id,
+                    &BigUint::from(1u64),
+                    &token_name,
+                    &BigUint::from(ROYALTIES),
+                    &attributes_hash,
+                    &attributes,
+                    &uris,
+                );
+                self.send()
+                    .direct(&caller, &token_id, nonce, &BigUint::from(1u64), &[]);
+            } else {
+                require!(false, "NFT can't be bridged");
+            }
+        }
     }
 
     #[only_owner]
     #[endpoint(giveaway)]
-    fn giveaway(&self,number_to_mint:BigUint,giveaway_address: ManagedAddress){
-        require!(self.is_paused().get()==false,"Contract is paused");
-        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
-        require!(!self.nft_token_cid().is_empty(),"CID is not set");
-        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
+    fn giveaway(&self, number_to_mint: BigUint, giveaway_address: ManagedAddress) {
+        require!(self.is_paused().get() == false, "Contract is paused");
+        require!(self.s_indexes().len() > 0usize, "Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(), "CID is not set");
+        require!(self.max_per_tx().get() > 0u64, "Max per tx not set");
         let (payment_amount, payment_token) = self.call_value().payment_token_pair();
         require!(payment_amount > 0u64, "Payment must be more than 0");
 
-        let price=self.selling_price(payment_token).get();
-        require!(&price>&BigUint::from(0u64),"Can't mint with this token");
-        require!(&payment_amount%&price==0u64,"Wrong payment amount sent");
+        let price = self.selling_price(payment_token).get();
+        require!(&price > &BigUint::from(0u64), "Can't mint with this token");
+        require!(
+            &payment_amount % &price == 0u64,
+            "Wrong payment amount sent"
+        );
 
-        let nr_of_tokens=number_to_mint;
-        require!(&nr_of_tokens>=&1u64,"Minimum amount to buy is 1");
-        require!(&nr_of_tokens<=&self.max_per_tx().get(),"Can't mint more than max per tx");
-        
-        let tokens_available=self.s_indexes().len();
-        require!(&nr_of_tokens<=&BigUint::from(tokens_available),"Not enough NFTs to mint");
+        let nr_of_tokens = number_to_mint;
+        require!(&nr_of_tokens >= &1u64, "Minimum amount to buy is 1");
+        require!(
+            &nr_of_tokens <= &self.max_per_tx().get(),
+            "Can't mint more than max per tx"
+        );
+
+        let tokens_available = self.s_indexes().len();
+        require!(
+            &nr_of_tokens <= &BigUint::from(tokens_available),
+            "Not enough NFTs to mint"
+        );
 
         let mut payments = ManagedVec::new();
-        let mut i=BigUint::from(1u32);
-        let step=BigUint::from(1u32);
-        while i<=nr_of_tokens{
-            let mut number = match self.q_indexes().pop_back() {
-                Some(number) => number,
-                None => 0,
-            };
-            while !self.s_indexes().contains(&number){
-                number = match self.q_indexes().pop_back() {
-                    Some(number) => number,
-                    None => 0,
-                };
-            }
-            require!(number>0,"Can't mint index 0");
+        let mut rand_source = RandomnessSource::<Self::Api>::new();
+        let mut i = BigUint::from(1u64);
+        let step = BigUint::from(1u64);
+        while i <= nr_of_tokens {
+            let tokens_available = self.s_indexes().len();
+            let number = rand_source.next_usize_in_range(1, tokens_available + 1) as u64;
+            let index = self.v_indexes().get(number as usize);
             let token_id = self.nft_token_id().get();
-            let token_name=self.create_name(number);
-            let attributes=self.create_attributes(number);
-            let hash_buffer=self.crypto().sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
+            let token_name = self.create_name(index);
+            let attributes = self.create_attributes(index);
+            let hash_buffer = self
+                .crypto()
+                .sha256_legacy_managed::<HASH_DATA_BUFFER_LEN>(&attributes);
             let attributes_hash = hash_buffer.as_managed_buffer();
-            let uris=self.create_uris(number);
+            let uris = self.create_uris(index);
 
-            let nonce=self.send().esdt_nft_create(
-                        &token_id,
-                        &BigUint::from(1u64),
-                        &token_name,
-                        &BigUint::from(ROYALTIES),
-                        &attributes_hash,
-                        &attributes,
-                        &uris);
-            
-            self.s_indexes().remove(&number);
+            let nonce = self.send().esdt_nft_create(
+                &token_id,
+                &BigUint::from(1u64),
+                &token_name,
+                &BigUint::from(ROYALTIES),
+                &attributes_hash,
+                &attributes,
+                &uris,
+            );
+
+            self.s_indexes().swap_remove(&index);
             payments.push(EsdtTokenPayment::new(token_id, nonce, BigUint::from(1u64)));
-            i+=&step;
+            i += &step;
         }
 
         let caller = giveaway_address;
@@ -387,30 +450,29 @@ pub trait NftMint {
     //STATE
     #[only_owner]
     #[endpoint(pause)]
-    fn pause(&self){
-        require!(self.s_indexes().len()>0usize,"Indexes are not populated");
-        require!(!self.nft_token_cid().is_empty(),"CID is not set");
-        require!(self.max_per_tx().get()>0u64,"Max per tx not set");
-        let pause_value=&self.is_paused().get();
-        if self.is_paused().is_empty(){
+    fn pause(&self) {
+        require!(self.s_indexes().len() > 0usize, "Indexes are not populated");
+        require!(!self.nft_token_cid().is_empty(), "CID is not set");
+        require!(self.max_per_tx().get() > 0u64, "Max per tx not set");
+        let pause_value = &self.is_paused().get();
+        if self.is_paused().is_empty() {
             self.is_paused().set(true);
-        }else{
+        } else {
             self.is_paused().set(!pause_value);
         }
-        
     }
 
     #[only_owner]
     #[endpoint(setPrice)]
-    fn set_price(&self, token_id:TokenIdentifier, price: BigUint) {
-        require!(price>BigUint::from(0u32),"Can't set price to 0");
+    fn set_price(&self, token_id: TokenIdentifier, price: BigUint) {
+        require!(price > BigUint::from(0u64), "Can't set price to 0");
         self.selling_price(token_id).set(&price);
     }
 
     #[only_owner]
     #[endpoint(setSpecificPrice)]
-    fn set_specific_price(&self, token_id:TokenIdentifier, price: BigUint) {
-        require!(price>BigUint::from(0u32),"Can't set price to 0");
+    fn set_specific_price(&self, token_id: TokenIdentifier, price: BigUint) {
+        require!(price > BigUint::from(0u64), "Can't set price to 0");
         self.selling_specific_price(token_id).set(&price);
     }
 
@@ -420,11 +482,10 @@ pub trait NftMint {
         self.max_per_tx().set(&max_per_tx);
     }
 
-
     //HELPERS
-    fn create_attributes(&self,number:u32) -> ManagedBuffer{
-        let cid=self.nft_token_cid().get();
-        let mut attributes=ManagedBuffer::new_from_bytes("metadata:".as_bytes());
+    fn create_attributes(&self, number: u64) -> ManagedBuffer {
+        let cid = self.nft_token_cid().get();
+        let mut attributes = ManagedBuffer::new_from_bytes("metadata:".as_bytes());
         attributes.append(&cid);
         attributes.append(&ManagedBuffer::new_from_bytes("/".as_bytes()));
         attributes.append(&self.decimal_to_ascii(number));
@@ -432,16 +493,16 @@ pub trait NftMint {
         attributes
     }
 
-    fn create_uris(&self,number:u32)->ManagedVec<ManagedBuffer>{
-        let cid=self.nft_token_cid().get();
-        let mut uris=ManagedVec::new();
-        let mut media_uri=ManagedBuffer::new_from_bytes("https://ipfs.io/ipfs/".as_bytes());
+    fn create_uris(&self, number: u64) -> ManagedVec<ManagedBuffer> {
+        let cid = self.nft_token_cid().get();
+        let mut uris = ManagedVec::new();
+        let mut media_uri = ManagedBuffer::new_from_bytes("https://ipfs.io/ipfs/".as_bytes());
         media_uri.append(&cid);
         media_uri.append(&ManagedBuffer::new_from_bytes("/".as_bytes()));
         media_uri.append(&self.decimal_to_ascii(number));
         media_uri.append(&ManagedBuffer::new_from_bytes(".jpg".as_bytes()));
         uris.push(media_uri);
-        let mut metadata_uri=ManagedBuffer::new_from_bytes("https://ipfs.io/ipfs/".as_bytes());
+        let mut metadata_uri = ManagedBuffer::new_from_bytes("https://ipfs.io/ipfs/".as_bytes());
         metadata_uri.append(&cid);
         metadata_uri.append(&ManagedBuffer::new_from_bytes("/".as_bytes()));
         metadata_uri.append(&self.decimal_to_ascii(number));
@@ -450,7 +511,7 @@ pub trait NftMint {
         uris
     }
 
-    fn create_name(&self,number:u32)->ManagedBuffer{
+    fn create_name(&self, number: u64) -> ManagedBuffer {
         let mut full_token_name = ManagedBuffer::new();
         let token_name_from_storage = self.nft_token_name().get();
         let token_index = self.decimal_to_ascii(number);
@@ -461,8 +522,8 @@ pub trait NftMint {
         full_token_name
     }
 
-    fn decimal_to_ascii(&self, mut number: u32) -> ManagedBuffer {
-        const MAX_NUMBER_CHARACTERS: u32 = 10;
+    fn decimal_to_ascii(&self, mut number: u64) -> ManagedBuffer {
+        const MAX_NUMBER_CHARACTERS: u64 = 10;
         const ZERO_ASCII: u8 = b'0';
 
         let mut as_ascii = [0u8; MAX_NUMBER_CHARACTERS as usize];
@@ -488,13 +549,13 @@ pub trait NftMint {
         ManagedBuffer::new_from_bytes(slice)
     }
 
-    fn caller_from_option_or_owner(
-        &self,
-        caller: OptionalValue<ManagedAddress>,
-    ) -> ManagedAddress {
-        caller
-            .into_option()
-            .unwrap_or_else(|| self.blockchain().get_owner_address())
+    #[view(getDidMint)]
+    fn did_mint(&self, address: ManagedAddress) -> bool {
+        if self.is_first_mint(&address).is_empty() || self.is_first_mint(&address).get() == true {
+            false
+        } else {
+            true
+        }
     }
 
     //STORAGE
@@ -514,17 +575,17 @@ pub trait NftMint {
 
     #[view(getNumberOfNfts)]
     #[storage_mapper("totalNumberOfNfts")]
-    fn total_number_of_nfts(&self) -> SingleValueMapper<u32>;
+    fn total_number_of_nfts(&self) -> SingleValueMapper<u64>;
 
     #[view(getIndexes)]
     #[storage_mapper("indexes")]
-    fn indexes(&self) -> VecMapper<u32>;
+    fn v_indexes(&self) -> VecMapper<u64>;
 
-    #[storage_mapper("qIndexes")]
-    fn q_indexes(&self) -> QueueMapper<u32>;
+    #[storage_mapper("indexes")]
+    fn s_indexes(&self) -> UnorderedSetMapper<u64>;
 
-    #[storage_mapper("sIndexes")]
-    fn s_indexes(&self) -> SetMapper<u32>;
+    #[storage_mapper("bridgeIndexes")]
+    fn bridge_indexes(&self, old_collection: &TokenIdentifier) -> MapMapper<u64, u64>;
 
     //SELLING
     #[storage_mapper("is_paused")]
@@ -532,11 +593,11 @@ pub trait NftMint {
 
     #[view(getSftPrice)]
     #[storage_mapper("sftPrice")]
-    fn selling_price(&self, token_id:TokenIdentifier) -> SingleValueMapper<BigUint>;
+    fn selling_price(&self, token_id: TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[view(getSftSpecificPrice)]
     #[storage_mapper("sftSpecificPrice")]
-    fn selling_specific_price(&self, token_id:TokenIdentifier) -> SingleValueMapper<BigUint>;
+    fn selling_specific_price(&self, token_id: TokenIdentifier) -> SingleValueMapper<BigUint>;
 
     #[view(getMaxPerTx)]
     #[storage_mapper("getMaxPerTx")]
@@ -552,12 +613,12 @@ pub trait NftMint {
 
     #[view(getRefMoney)]
     #[storage_mapper("getRefMoney")]
-    fn ref_money(&self, address:&ManagedAddress) -> SingleValueMapper<BigUint>;
+    fn ref_money(&self, address: &ManagedAddress) -> SingleValueMapper<BigUint>;
 
     #[view(getRefCount)]
     #[storage_mapper("getRefCount")]
-    fn ref_count(&self, address:&ManagedAddress) -> SingleValueMapper<u32>;
+    fn ref_count(&self, address: &ManagedAddress) -> SingleValueMapper<u64>;
 
     #[storage_mapper("isFirstMint")]
-    fn is_first_mint(&self, address:&ManagedAddress) -> SingleValueMapper<bool>;
+    fn is_first_mint(&self, address: &ManagedAddress) -> SingleValueMapper<bool>;
 }

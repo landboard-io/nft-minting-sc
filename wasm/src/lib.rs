@@ -8,7 +8,8 @@ elrond_wasm_node::wasm_endpoints! {
     sftmint
     (
         callBack
-        depopulateIndexes
+        bridgeNfts
+        getDidMint
         getDiscountPercent
         getIndexes
         getMaxPerTx
@@ -26,6 +27,7 @@ elrond_wasm_node::wasm_endpoints! {
         mintRandomNft
         mintSpecificNft
         pause
+        populateBridgeIndexes
         populateIndexes
         setCid
         setDiscountPercent
@@ -34,6 +36,5 @@ elrond_wasm_node::wasm_endpoints! {
         setPrice
         setRefPercent
         setSpecificPrice
-        syncMemory
     )
 }

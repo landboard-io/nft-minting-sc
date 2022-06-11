@@ -1,31 +1,65 @@
 PROXY=https://devnet-gateway.elrond.com
 CHAIN_ID="D"
 
-WALLET="./wallets/users/heidi.pem"
+WALLET="./wallets/test-wallet.pem"
 
 #######################################################
 ADDRESS=$(erdpy data load --key=address-devnet)
+DEVNET_ADDRESS=$(erdpy data load --key=address-devnet-2)
 #######################################################
 
 COLLECTION_NAME="LandboardTile"
 COLLECTION_NAME_HEX="0x$(echo -n ${COLLECTION_NAME} | xxd -p -u | tr -d '\n')"
-COLLECTION_TIKER="LBTILE"
+COLLECTION_TIKER="TILE"
 COLLECTION_TIKER_HEX="0x$(echo -n ${COLLECTION_TIKER} | xxd -p -u | tr -d '\n')"
 
-TOTAL_NUMBER_OF_NFTS=100
+TOTAL_NUMBER_OF_NFTS=500
 
-CID="CID_URL"
+CID="QmUbuMPWK8U9Kvn4HHZJ7uyGpesH1heNiQMaWc1M9itX7Q"
 CID_HEX="0x$(echo -n ${CID} | xxd -p -u | tr -d '\n')"
 
 MINT_EGLD_VALUE=1000000000000000000 # 1 EGLD
 
-NUMBER_OF_NFTS_TO_MINT=10
+NUMBER_OF_NFTS_TO_MINT=05
+REF_PERCENT=02
+DISCOUNT_PERCENT=05
 
-PAYMENT_TOKEN_ID="EGLD"
-PAYMENT_TOKEN_ID_HEX="0x$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
-PAYMENT_TOKEN_AMOUNT=100000000000000000 # 0.1 EGLD
 
-MAX_PER_TX=20
+# RANDOM MINT
+
+PAYMENT_TOKEN_ID="LAND-40f26f"
+PAYMENT_TOKEN_ID_HEX="$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
+PAYMENT_TOKEN_AMOUNT=533000000000000000000 # 533 LAND
+
+# PAYMENT_TOKEN_ID="LKLAND-6cf78e"
+# PAYMENT_TOKEN_ID_HEX="$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
+# PAYMENT_TOKEN_AMOUNT=710000000000000000000 # 533 LAND
+
+# PAYMENT_TOKEN_ID="LKLAND-c617f7"
+# PAYMENT_TOKEN_ID_HEX="$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
+# PAYMENT_TOKEN_AMOUNT=710000000000000000000 # 533 LAND
+
+
+#SPECIFIC MINT
+
+# PAYMENT_TOKEN_ID="LAND-40f26f"
+# PAYMENT_TOKEN_ID_HEX="$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
+# PAYMENT_TOKEN_AMOUNT=800000000000000000000 # 533 LAND
+
+# PAYMENT_TOKEN_ID="LKLAND-6cf78e"
+# PAYMENT_TOKEN_ID_HEX="$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
+# PAYMENT_TOKEN_AMOUNT=1080000000000000000000 # 533 LAND
+
+# PAYMENT_TOKEN_ID="LKLAND-c617f7"
+# PAYMENT_TOKEN_ID_HEX="$(echo -n ${PAYMENT_TOKEN_ID} | xxd -p -u | tr -d '\n')"
+# PAYMENT_TOKEN_AMOUNT=1080000000000000000000 # 533 LAND
+
+
+MINT_RANDOM="$(echo -n mintRandomNft | xxd -p -u | tr -d '\n')"
+MINT_SPECIFIC="$(echo -n mintSpecificNft | xxd -p -u | tr -d '\n')"
+MAX_PER_TX=32
+
+
 
 deploy() {
     erdpy --verbose contract deploy \
@@ -38,6 +72,9 @@ deploy() {
 
     echo ""
     echo "Smart contract address: ${ADDRESS}"
+}
+upgrade() {
+    erdpy --verbose contract upgrade ${DEVNET_ADDRESS} --project=${PROJECT} --recall-nonce --pem=${WALLET} --gas-limit=100000000 --send --outfile="upgrade.json" --proxy=${PROXY} --chain=${CHAIN_ID} --metadata-payable
 }
 
 issueToken() {
@@ -54,11 +91,27 @@ setLocalRoles() {
     --function="setLocalRoles"
 }
 
-populateIndexes() {
+setRefPercent() {
     erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
     --gas-limit=100000000 \
+    --function="setRefPercent" \
+    --arguments ${REF_PERCENT}
+}
+
+setDiscountPercent() {
+    erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
+    --gas-limit=100000000 \
+    --function="setDiscountPercent" \
+    --arguments ${DISCOUNT_PERCENT}
+}
+
+populateIndexes() {
+    erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
+    --gas-limit=600000000 \
     --function="populateIndexes" \
     --arguments ${TOTAL_NUMBER_OF_NFTS}
+    sleep 1
+    
 }
 
 setCid() {
@@ -68,11 +121,27 @@ setCid() {
     --arguments ${CID_HEX}
 }
 
+
+depopulateIndexes() {
+   
+    erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
+    --gas-limit=600000000 \
+    --function="depopulateIndexes" 
+ 
+}
+
 setPrice() {
     erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
     --gas-limit=100000000 \
     --function="setPrice" \
-    --arguments ${PAYMENT_TOKEN_ID_HEX} ${PAYMENT_TOKEN_AMOUNT}
+    --arguments 0x${PAYMENT_TOKEN_ID_HEX} ${PAYMENT_TOKEN_AMOUNT}
+}
+
+setSpecificPrice() {
+    erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
+    --gas-limit=100000000 \
+    --function="setSpecificPrice" \
+    --arguments 0x${PAYMENT_TOKEN_ID_HEX} ${PAYMENT_TOKEN_AMOUNT}
 }
 
 setMaxPerTx() {
@@ -89,16 +158,18 @@ pause() {
 }
 
 mintRandomNft() {
-    erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
-    --gas-limit=100000000 \
-    --function="mintRandomNft" \
-    --value ${MINT_EGLD_VALUE}
+    erdpy --verbose tx new --receiver ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
+    --data="ESDTTransfer@${PAYMENT_TOKEN_ID_HEX}@016345785d8a0000@${MINT_RANDOM}" \
+    --gas-limit=100000000 
 }
 
 mintSpecificNft() {
-    erdpy --verbose contract call ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
+    erdpy --verbose tx new --receiver ${ADDRESS} --send --proxy=${PROXY} --chain=${CHAIN_ID} --recall-nonce --pem=${WALLET} \
     --gas-limit=100000000 \
-    --function="mintSpecificNft" \
-    --value ${MINT_EGLD_VALUE}  \
-    --arguments ${NUMBER_OF_NFTS_TO_MINT}
+    --data="ESDTTransfer@${PAYMENT_TOKEN_ID_HEX}@016345785d8a0000@${MINT_SPECIFIC}@01103E" 
 }
+
+getSftPrice() {
+    erdpy --verbose contract query ${ADDRESS} --proxy=${PROXY} --function="getSftPrice" --arguments ${CALLER_ADDRESS_HEX} 1
+}
+

@@ -1,17 +1,17 @@
 const buildNftPayLoad = (nft: any) => {
-	const hexid = Buffer.from(nft.collection).toString('hex');
-	let hexnonce = parseInt(nft.nonce).toString(16);
-	if (hexnonce.length % 2 !== 0) {
-		hexnonce = '0' + hexnonce;
-	}
-	return '@' + hexid + '@' + hexnonce + '@01';
+  const hexid = Buffer.from(nft.collection).toString('hex');
+  let hexnonce = parseInt(nft.nonce).toString(16);
+  if (hexnonce.length % 2 !== 0) {
+    hexnonce = '0' + hexnonce;
+  }
+  return '@' + hexid + '@' + hexnonce + '@01';
 }
 
 
 const BridgeExample = () => {
-  
+
   const [bridgeNfts, setBridgeNfts] = useState([]);
-  
+
   useEffect(() => {
     if (isLoggedIn) {
       axios
@@ -23,8 +23,8 @@ const BridgeExample = () => {
         });
     }
   }, []);
-  
-  
+
+
   const sendBridgeTransaction = async () => {
     if (selectedWalletNfts.length > 0) {
       let hexamount = bridgeNfts.length.toString(16);
@@ -45,7 +45,7 @@ const BridgeExample = () => {
         value: 0,
         data: new TransactionPayload(data),
         receiver: new Address(contractAddress),
-        gasLimit: 20000000 * (selectedWalletNfts.length + 1),
+        gasLimit: 20000000 * (bridgeNfts.length + 1),
         chainID: '1'
       });
       await refreshAccount();

@@ -29,6 +29,8 @@ elrond_wasm_node::wasm_endpoints! {
         pause
         populateBridgeIndexes
         populateIndexes
+        rollbackBridgeIndexes
+        rollbackBridgeIndexesClear
         setCid
         setDiscountPercent
         setLocalRoles

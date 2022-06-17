@@ -120,6 +120,23 @@ pub trait NftMint {
     }
 
     #[only_owner]
+    #[endpoint(rollbackBridgeIndexes)]
+    fn rollback_bridge_indexes(&self, old_collection: TokenIdentifier) {
+        let mut indexes = self.s_indexes();
+        let bridge_indexes = self.bridge_indexes(&old_collection);
+        for (key, value) in bridge_indexes.iter() {
+            indexes.insert(value);
+            self.total_number_of_nfts().update(|v| *v += 1u64);
+        }
+    }
+
+    #[only_owner]
+    #[endpoint(rollbackBridgeIndexesClear)]
+    fn rollback_bridge_indexes_clear(&self, old_collection: TokenIdentifier) {
+        self.bridge_indexes(&old_collection).clear();
+    }
+
+    #[only_owner]
     #[endpoint(setCid)]
     fn set_cid(&self, cid: ManagedBuffer) {
         let indexes = self.s_indexes();
